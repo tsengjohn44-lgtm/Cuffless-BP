@@ -1,0 +1,10 @@
+{
+  "missing samples (NaN)": 0,
+  "fewer than 5 beats": 48,
+  "SBP outside 60-220 mmHg": 0,
+  "DBP outside 30-130 mmHg": 33,
+  "SBP <= DBP": 0,
+  "flat PPG": 0,
+  "clipped PPG": 698,
+  "kept": 64093
+}
