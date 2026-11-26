@@ -228,3 +228,6 @@ data/
 *.h5
 *.pt
 .env
+
+# Claude Code worktrees (one per track)
+.claude/worktrees/
