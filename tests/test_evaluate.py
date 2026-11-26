@@ -230,3 +230,16 @@ def test_pick_sample_rows_caps_total_and_per_record():
     assert len(rows) == 200 and len(set(rows)) == 200
     assert labels.iloc[rows]["record_id"].value_counts().max() <= 2
     assert (rows == evaluate.pick_sample_rows(labels, n=200, per_record=2, seed=0)).all()
+
+
+def test_feature_named_like_a_windows_column(paths):
+    """A feature may share its name with a windows.csv column (here n_beats). It must
+    reach the model under its own name, not as pandas' n_beats_x / n_beats_y."""
+    features = pd.read_csv(paths.features_csv, dtype={"record_id": str}).assign(n_beats=10.0)
+    features.to_csv(paths.features_csv, index=False)
+    train = features["record_id"].isin(SPLIT["train"])
+    X = features.loc[train, [*FEATURES, "n_beats"]]
+    (paths.models_dir / "constant.joblib").unlink()
+    joblib.dump(LinearRegression().fit(X, X[FEATURES]), paths.models_dir / "hgb.joblib")
+    result = evaluate.run(paths, final=False)
+    assert result["models"]["hgb"]["sbp"]["mae"] == pytest.approx(0.0, abs=1e-3)

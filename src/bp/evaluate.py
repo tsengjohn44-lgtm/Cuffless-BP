@@ -127,7 +127,10 @@ def load_split_windows(paths: Paths, records: list[str]) -> tuple[pd.DataFrame, 
     # record_id is read as text: "1_0042" must not turn into a number.
     windows = pd.read_csv(require(paths.windows_csv, "make windows"), dtype={"record_id": str})
     windows["npz_row"] = np.arange(len(windows))  # row i of windows.csv = row i of windows.npz
-    windows = windows[windows["record_id"].isin(set(records))]
+    # Keep only what we need, so a feature that shares a name with another windows.csv
+    # column (e.g. n_beats) is not renamed n_beats_x / n_beats_y by the merge below.
+    in_split = windows["record_id"].isin(set(records))
+    windows = windows.loc[in_split, [*KEY_COLUMNS, "sbp_mmhg", "dbp_mmhg", "npz_row"]]
     if windows.empty:
         raise MissingInput(
             f"no window in {paths.windows_csv} belongs to the split. Re-run `make windows`."
