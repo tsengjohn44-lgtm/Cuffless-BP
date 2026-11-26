@@ -4,6 +4,7 @@ Each test copies app/demo.py into a temporary app/ folder, because the demo look
 sample next to itself."""
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -31,16 +32,22 @@ ENTRY = {  # a metrics.json entry (data contract, section 6)
 }
 
 
-def write_sample(app_dir: Path, name: str = "sample.npz", drop: str | None = None) -> None:
+def write_sample(
+    app_dir: Path,
+    name: str = "sample.npz",
+    drop: str | None = None,
+    k: int = K,
+    entry: dict = ENTRY,
+) -> None:
     t = np.arange(1250) / 125
     data = {
-        "ppg": np.sin(2 * np.pi * 1.2 * t)[None].repeat(K, axis=0).astype(np.float32),
-        "record_id": np.array([f"1_{i:04d}" for i in range(K)]),
-        "sbp_true": np.full(K, 120.0),
-        "dbp_true": np.full(K, 70.0),
-        "sbp_pred": 121.0 + np.arange(K) * 5,  # 121, 126, 131, ... so windows differ
-        "dbp_pred": np.full(K, 73.0),
-        "metrics_json": np.array(json.dumps(ENTRY)),
+        "ppg": np.sin(2 * np.pi * 1.2 * t)[None].repeat(k, axis=0).astype(np.float32),
+        "record_id": np.array([f"1_{i:04d}" for i in range(k)]),
+        "sbp_true": np.full(k, 120.0),
+        "dbp_true": np.full(k, 70.0),
+        "sbp_pred": 121.0 + np.arange(k) * 5,  # 121, 126, 131, ... so windows differ
+        "dbp_pred": np.full(k, 73.0),
+        "metrics_json": np.array(json.dumps(entry)),
     }
     data.pop(drop, None)
     np.savez(app_dir / name, **data)
@@ -112,3 +119,25 @@ def test_sample_missing_a_key_says_which(app_dir):
     write_sample(app_dir, drop="metrics_json")
     at = run(app_dir)
     assert "lacks metrics_json" in texts(at.error)
+
+
+def test_metrics_missing_a_key_says_which(app_dir):
+    broken = {"sbp": {k: v for k, v in ENTRY["sbp"].items() if k != "mae"}, "dbp": ENTRY["dbp"]}
+    write_sample(app_dir, entry=broken)
+    at = run(app_dir)
+    assert "SBP lack mae" in texts(at.error)
+
+
+def test_sample_rewritten_with_fewer_windows(app_dir):
+    """The sample can be rewritten (make eval) while the demo runs. A selected window
+    that no longer exists must fall back to the first one, not crash."""
+    write_sample(app_dir)
+    at = run(app_dir)
+    at.selectbox[0].set_value(4).run()
+    sample = app_dir / "sample.npz"
+    old = sample.stat().st_mtime
+    write_sample(app_dir, k=2)
+    os.utime(sample, (old + 10, old + 10))  # make sure the demo sees a new file
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert at.metric[0].value == "121 mmHg"  # window 1 of the new sample

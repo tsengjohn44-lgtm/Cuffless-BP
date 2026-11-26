@@ -24,6 +24,19 @@ FS_HZ = 125  # samples per second in the dataset
 SAMPLES = [(APP_DIR / "sample.npz", "test"), (APP_DIR / "sample_val.npz", "validation")]
 ARRAY_KEYS = ["ppg", "record_id", "sbp_true", "dbp_true", "sbp_pred", "dbp_pred"]
 TARGETS = {"sbp": "Systolic (SBP)", "dbp": "Diastolic (DBP)"}
+METRIC_KEYS = [  # one metrics.json entry (data contract, section 6)
+    "n_windows",
+    "n_records",
+    "me",
+    "sd",
+    "mae",
+    "mae_ci95",
+    "pct_within_5",
+    "pct_within_10",
+    "pct_within_15",
+    "bhs_grade",
+    "aami_pass",
+]
 DISCLAIMER = "Research demo, not a medical device. Do not use it for any health decision."
 
 
@@ -45,6 +58,10 @@ def load_sample(path: str, modified: float) -> dict:
         raise SampleError(f"ppg has shape {data['ppg'].shape}, expected (windows, samples)")
     if any(len(data[k]) != n for k in ARRAY_KEYS):
         raise SampleError("its arrays have different numbers of windows")
+    for t in TARGETS:  # check now, so a bad entry never surfaces later as a stack trace
+        missing = [k for k in METRIC_KEYS if k not in data["metrics"].get(t, {})]
+        if missing:
+            raise SampleError(f"its metrics for {t.upper()} lack {', '.join(missing)}")
     return data
 
 
