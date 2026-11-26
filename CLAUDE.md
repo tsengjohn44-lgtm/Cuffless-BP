@@ -35,7 +35,14 @@ Each track has its own worktree and branch. Only edit files in your own track un
 
 If the team is smaller, tracks merge from the bottom up. `tests/` belongs to whoever owns the code under test.
 
-**Shared files.** Never change these without asking first: `requirements.txt`, `Makefile`, `data/split.json`, the data contract (`docs/data-contract.md`), and `.gitignore`.
+**Shared files.** Never change these without asking first: `requirements.txt`, `Makefile`, `splits/split.json`, the data contract (`docs/data-contract.md`), and `.gitignore`.
+
+## Running 3 Claude Code terminals
+- One-time setup from the main checkout: `make tracks`. It creates `.claude/worktrees/{data,model,eval}`, each on its own branch, sharing the main checkout's `data/` and `.venv` through its `.env`. With 3 terminals, Demo folds into Evaluation (the `eval` track owns `app/`).
+- **Your track is your branch prefix** (`git branch --show-current`). File ownership lives in `tools/tracks.py`. Edits to files your track doesn't own are blocked by `.claude/settings.local.json` in each worktree, and so are `pip install` and `gh pr merge`.
+- Before every PR run `make check-owner`. It fails if the branch touches any file your track doesn't own, however it was edited.
+- Write outputs in the shared data folder with `bp.fileio.atomic_write`, so another terminal never reads half a file.
+- Merge order: the data PR first (windows and split unblock everyone), then in the other worktrees `git fetch && git rebase origin/main`.
 
 ## Data contract
 The tracks build at the same time, so agree on the file formats first and write them in `docs/data-contract.md`: the columns and units of the windows table, the feature table, and the predictions file that `evaluate.py` and the demo read. Every track builds against that file. Don't change the contract from a track branch. Propose the change and wait for an OK instead.
@@ -56,7 +63,7 @@ src/bp/
   download.py   # fetch + unzip into data/raw (prints size, skips if present)
   load.py       # read .mat records -> numpy arrays
   windows.py    # cut records into 10 s windows, quality filters, SBP/DBP labels
-  split.py      # record-level train/val/test split, fixed seed, saved to data/split.json
+  split.py      # record-level train/val/test split, fixed seed, saved to splits/split.json (committed)
   features.py   # PPG (and optional ECG) features per window
   baselines.py  # mean baseline, pulse-arrival-time + linear regression
   train.py      # gradient boosting models for SBP and DBP
@@ -120,6 +127,7 @@ At each checkpoint: run the verification checklist, commit with a clear message,
 
 ## Verification (before every PR)
 - [ ] `make test` and `ruff check .` pass
+- [ ] `make check-owner` passes (the branch only touches files your track owns)
 - [ ] The demo starts with `make demo`, with no errors in the terminal or the browser console
 - [ ] The demo flow still works from start to finish
 - [ ] The test split was not touched (only `evaluate.py --final` reads it)

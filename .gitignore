@@ -221,3 +221,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Data
+data/
+*.mat
+*.h5
+*.pt
+.env
+
+# Claude Code worktrees (one per track) and their per-worktree deny rules
+.claude/worktrees/
+.claude/settings.local.json
