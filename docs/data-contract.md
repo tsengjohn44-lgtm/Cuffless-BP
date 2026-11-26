@@ -9,7 +9,11 @@ unless they start with `results/` or `app/`.
 ## Conventions
 - Sampling rate: **125 Hz**. One window = **10 s = 1,250 samples**, no overlap.
 - Pressures in **mmHg**, times in **seconds**, heart rate in **beats per minute**.
-- PPG and ECG amplitudes: arbitrary units (to be confirmed by `make inspect`).
+- PPG and ECG amplitudes: arbitrary units. Verified on Part_1 (`make inspect`): PPG ranges
+  0 to 4.002 and sits at either limit in about 0.02% of samples (clipping); the record
+  layout is documented in `src/bp/load.py`.
+- Every output in the shared data folder is written with `bp.fileio.atomic_write`, so a
+  terminal reading it while another rewrites it never sees half a file.
 - `record_id` is a string `"<part>_<index>"`, e.g. `"1_0042"` = Part_1, record 42 (0-based,
   4-digit zero padding). It is the unit of the train/val/test split.
 - `window_id` is an int, unique across all parts, assigned in order by `windows.py`.
@@ -36,7 +40,7 @@ is written to `results/window_filters.json` as `{"filter name": n_dropped, ...}`
 `"kept"`.
 
 ## 2. Split (`split.py` → everyone)
-`split.json`
+`splits/split.json` (repo-relative, committed to git so the split can be reviewed)
 ```json
 {"seed": 42, "fractions": [0.70, 0.15, 0.15],
  "train": ["1_0000", "..."], "val": ["..."], "test": ["..."]}

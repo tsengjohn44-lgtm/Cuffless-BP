@@ -7,7 +7,8 @@ export BP_DATA_DIR
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 RUN = PYTHONPATH=src $(PYTHON) -m
 
-.PHONY: all data inspect windows features baselines train eval final demo test lint format install
+.PHONY: all data inspect windows features baselines train eval final demo test lint format \
+	install tracks check-owner
 
 all: data windows features baselines train eval
 
@@ -39,8 +40,14 @@ eval:            ## validation split only
 final:           ## Phase 4 only: the one and only run on the test split
 	$(RUN) bp.evaluate --final
 
-demo:
-	$(PYTHON) -m streamlit run app/demo.py
+demo:            ## port from DEMO_PORT in .env, so two worktrees never collide
+	$(PYTHON) -m streamlit run app/demo.py --server.port $(or $(DEMO_PORT),8501)
+
+tracks:          ## create the 3 track worktrees (data, model, eval) for 3 terminals
+	$(PYTHON) tools/tracks.py setup
+
+check-owner:     ## fail if this branch touches files its track doesn't own
+	$(PYTHON) tools/tracks.py check
 
 test:
 	$(PYTHON) -m pytest -q

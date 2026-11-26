@@ -18,6 +18,7 @@ if not DATA_DIR.is_absolute():
     DATA_DIR = REPO_ROOT / DATA_DIR
 RAW_DIR = DATA_DIR / "raw"
 INTERIM_DIR = DATA_DIR / "interim"
-SPLIT_FILE = DATA_DIR / "split.json"
-
 RESULTS_DIR = REPO_ROOT / "results"
+
+# The split lives in the repo (not in data/) so it is committed and reviewable.
+SPLIT_FILE = REPO_ROOT / "splits" / "split.json"

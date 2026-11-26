@@ -4,11 +4,26 @@ Plain-language summary:
 - The .mat files are MATLAB v7.3, which is really HDF5, so we read them with h5py.
 - `python -m bp.load --inspect` prints the raw layout of a file without assuming
   anything, so we can check the shape and channel order before trusting a loader.
+- `iter_records()` walks one file and yields each record's three signals.
+
+Layout, verified on Part_1.mat with `make inspect` (Phase 0):
+- The file holds one dataset named like the file ("Part_1") of shape (3000, 1).
+  Each entry is a reference to one record (a MATLAB cell array).
+- Each record is a float64 array of shape (n_samples, 3): one column per signal.
+  MATLAB saves it as 3 x n_samples; h5py shows it transposed.
+- Column 0 = PPG (fingertip, arbitrary units, range 0 to 4.002; hits both limits
+  rarely, i.e. clipping), column 1 = ABP (mmHg, roughly 50-160), column 2 = ECG.
+  Checked three ways: ABP is the only channel in a mmHg range, ECG is the only spiky
+  one (kurtosis 7-13 vs about -1), and all three beat at the same heart rate.
+- Records are 1,000 to 74,000 samples (8 s to 592 s at 125 Hz), in steps of 1,000.
+  293 of the 3,000 records in Part_1 are shorter than one 10 s window.
 """
 
 import argparse
 import sys
+from collections.abc import Iterator
 from pathlib import Path
+from typing import NamedTuple
 
 import h5py
 import numpy as np
@@ -16,6 +31,36 @@ import numpy as np
 from bp.paths import RAW_DIR
 
 FS_HZ = 125  # sampling rate stated by the dataset authors
+PPG, ABP, ECG = 0, 1, 2  # column order inside each record (verified, see above)
+
+
+class Record(NamedTuple):
+    record_id: str
+    ppg: np.ndarray  # 1-D, arbitrary units
+    abp: np.ndarray  # 1-D, mmHg
+    ecg: np.ndarray  # 1-D
+
+
+def record_id(part: int, index: int) -> str:
+    """'1_0042' = Part_1, record 42 (0-based). Matches docs/data-contract.md."""
+    return f"{part}_{index:04d}"
+
+
+def part_number(path: Path) -> int:
+    """Part_3.mat -> 3."""
+    return int(Path(path).stem.split("_")[-1])
+
+
+def iter_records(path: Path) -> Iterator[Record]:
+    """Yield every record in one Part_N.mat file, in file order."""
+    part = part_number(path)
+    with h5py.File(path, "r") as f:
+        refs = np.asarray(f[f"Part_{part}"]).ravel()
+        for i, ref in enumerate(refs):
+            rec = f[ref][()]
+            if rec.ndim != 2 or rec.shape[1] != 3:
+                raise ValueError(f"record {i} has shape {rec.shape}, expected (n_samples, 3)")
+            yield Record(record_id(part, i), rec[:, PPG], rec[:, ABP], rec[:, ECG])
 
 
 def describe(name: str, obj) -> str:

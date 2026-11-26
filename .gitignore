@@ -229,5 +229,6 @@ data/
 *.pt
 .env
 
-# Claude Code worktrees (one per track)
+# Claude Code worktrees (one per track) and their per-worktree deny rules
 .claude/worktrees/
+.claude/settings.local.json

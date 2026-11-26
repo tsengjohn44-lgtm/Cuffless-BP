@@ -9,5 +9,5 @@ src = ["src"]
 select = ["E", "F", "W", "I", "B", "UP"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "tools"]
 testpaths = ["tests"]
