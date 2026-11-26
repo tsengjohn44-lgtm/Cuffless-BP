@@ -221,10 +221,3 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-
-# Data
-data/
-*.mat
-*.h5
-*.pt
-.env
