@@ -171,6 +171,8 @@ def test_final_run_scores_the_test_split(paths, capsys):
     assert "FINAL RUN" in capsys.readouterr().out
     metrics = json.loads((paths.results_dir / "metrics.json").read_text())
     assert metrics["split"] == "test"
+    assert metrics["error_analysis"]["n_records"] == len(SPLIT["test"])
+    assert "test split" in (paths.results_dir / "error_analysis_test.md").read_text()
     preds = read_predictions(paths.results_dir / "predictions_test.csv")
     assert set(preds["record_id"]) == set(SPLIT["test"])
     sample = paths.app_dir / "sample.npz"
@@ -246,11 +248,14 @@ def test_feature_named_like_a_windows_column(paths):
 
 
 def test_error_analysis_report(paths):
-    evaluate.run(paths, final=False)
-    a = json.loads((paths.results_dir / "error_analysis_val.json").read_text())
+    result = evaluate.run(paths, final=False)
+    on_disk = json.loads((paths.results_dir / "metrics.json").read_text())
+    a = on_disk["error_analysis"]  # the README's error-analysis numbers come from here
     md = (paths.results_dir / "error_analysis_val.md").read_text()
 
-    assert (a["split"], a["model"]) == ("val", "hgb")
+    assert a == result["error_analysis"]
+    assert not (paths.results_dir / "error_analysis_val.json").exists()  # no second copy
+    assert a["model"] == "hgb"
     assert (a["n_windows"], a["n_records"]) == (6, 2)
     # The fixture has no hr_bpm / ppg_skew / beat_corr / pat_s, so only the BP slices run.
     slices = {s["column"]: s["rows"] for s in a["slices"]}
@@ -268,8 +273,9 @@ def test_error_analysis_report(paths):
 
 def test_no_error_analysis_without_the_main_model(paths):
     (paths.models_dir / "hgb.joblib").unlink()
-    evaluate.run(paths, final=False)
-    assert not (paths.results_dir / "error_analysis_val.json").exists()
+    result = evaluate.run(paths, final=False)
+    assert "error_analysis" not in result
+    assert not (paths.results_dir / "error_analysis_val.md").exists()
 
 
 def test_bin_labels_edges_go_up_and_nan_is_missing():

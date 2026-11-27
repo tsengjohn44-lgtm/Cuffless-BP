@@ -178,9 +178,9 @@ tuned after it.
 ### Where it works and where it fails
 
 Measured on the **validation** split (9,369 windows from 390 records), for the main model.
-Every table, including how much the model relies on each feature, is in
-`results/error_analysis_val.md`, written by `make eval`. In Phase 4, `make final` writes the
-same tables for the test split.
+`make eval` stores these numbers in the `error_analysis` section of `results/metrics.json`
+and shows them as tables in `results/error_analysis_val.md`, including how much the model
+relies on each feature. In Phase 4, `make final` does the same for the test split.
 
 - **Extreme pressures, the biggest weakness.** The model pulls its estimates toward the
   middle of the range. When true SBP is below 100 mmHg it reads 13.4 mmHg too high on
