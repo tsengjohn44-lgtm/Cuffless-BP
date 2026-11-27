@@ -47,11 +47,16 @@ RANDOM_STATE = 0
 # 16 settings. learning_rate x max_iter: how far each tree corrects and how many trees.
 # max_leaf_nodes: how detailed one tree can be. min_samples_leaf: the fewest windows a leaf
 # may hold; larger values smooth over noisy windows.
+# Phase 2 searched learning_rate {0.05, 0.1} x max_iter {200, 500} x max_leaf_nodes {15, 63}
+# x min_samples_leaf {20, 200}. The best (0.1, 500, 63, 20) sat at the edge of three of the
+# four ranges, so Phase 3 moves each range outward from it. PHASE2_BEST stays in the grid,
+# so the validation error can only stay the same or improve.
+PHASE2_BEST = {"learning_rate": 0.1, "max_iter": 500, "max_leaf_nodes": 63, "min_samples_leaf": 20}
 GRID = {
     "learning_rate": [0.05, 0.1],
-    "max_iter": [200, 500],
-    "max_leaf_nodes": [15, 63],
-    "min_samples_leaf": [20, 200],
+    "max_iter": [500, 1000],
+    "max_leaf_nodes": [63, 127],
+    "min_samples_leaf": [10, 20],
 }
 
 

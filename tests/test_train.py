@@ -75,3 +75,10 @@ def test_saved_model_is_plain_scikit_learn(tmp_path):
     modules = {type(loaded).__module__} | {type(e).__module__ for e in loaded.estimators_}
     assert all(m.startswith("sklearn.") for m in modules), modules
     assert loaded.predict(X).shape == (100, 2)
+
+
+def test_grid_still_contains_the_phase2_best():
+    """Retuning can then only match or beat the Phase 2 validation error, never lose to it."""
+    from bp.train import GRID, PHASE2_BEST
+
+    assert PHASE2_BEST in param_grid(GRID)
