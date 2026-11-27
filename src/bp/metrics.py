@@ -141,3 +141,82 @@ def summarize(pred: ArrayLike, true: ArrayLike, record_ids: ArrayLike) -> dict:
         "bhs_grade": bhs_grade(*pcts.values()),
         "aami_pass": aami_pass(me, sd),
     }
+
+
+# ---------------------------------------------------------------- error analysis (Phase 3)
+
+
+def by_group(
+    errs: dict[str, np.ndarray], record_ids: ArrayLike, groups: ArrayLike, order: list[str]
+) -> list[dict]:
+    """MAE and ME of each target within each group, in `order`; empty groups are left out.
+
+    errs: {"sbp": errors, "dbp": errors}, one value per window. groups: one label per window.
+    """
+    record_ids, groups = np.asarray(record_ids), np.asarray(groups)
+    rows = []
+    for group in order:
+        mask = groups == group
+        if not mask.any():
+            continue
+        row = {
+            "group": group,
+            "n_windows": int(mask.sum()),
+            "n_records": int(np.unique(record_ids[mask]).size),
+        }
+        for target, err in errs.items():
+            row[f"{target}_mae"] = mae(err[mask])
+            row[f"{target}_me"] = mean_error(err[mask])
+        rows.append(row)
+    return rows
+
+
+def record_offset_share(err: np.ndarray, record_ids: ArrayLike) -> float:
+    """Share of the mean squared error that is a constant offset per record.
+
+    Each window's error = its record's mean error (the offset) + what is left. What is
+    left averages to zero inside each record, so the mean squared error splits exactly
+    into mean(offset^2) + mean(left^2). This returns mean(offset^2) / mean squared error:
+    1 means the model is off by the same amount for every window of a record (a patient
+    who always reads high or low); 0 means no record has a consistent offset.
+    """
+    total = np.mean(err**2)
+    if total == 0:
+        return 0.0  # no error at all, so no offset either
+    _, rec_index = np.unique(np.asarray(record_ids), return_inverse=True)
+    offset = np.bincount(rec_index, weights=err) / np.bincount(rec_index)
+    return float(np.mean(offset[rec_index] ** 2) / total)
+
+
+def worst_records_share(err: np.ndarray, record_ids: ArrayLike, fraction: float = 0.1) -> float:
+    """Share of the total squared error held by the `fraction` of records whose mean
+    error (offset) is largest in size. Shows whether a few patients dominate the error."""
+    _, rec_index = np.unique(np.asarray(record_ids), return_inverse=True)
+    offset = np.bincount(rec_index, weights=err) / np.bincount(rec_index)
+    sq_per_record = np.bincount(rec_index, weights=err**2)
+    if sq_per_record.sum() == 0:
+        return 0.0  # no error at all
+    n_worst = max(1, int(round(fraction * offset.size)))
+    worst = np.argsort(-np.abs(offset))[:n_worst]
+    return float(sq_per_record[worst].sum() / sq_per_record.sum())
+
+
+def one_point_calibration(
+    pred: ArrayLike, true: ArrayLike, record_ids: ArrayLike
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """What-if: one reference reading (e.g. a cuff) at the start of each record.
+
+    The first window of each record plays the calibration reading: its error
+    (pred - true) is subtracted from every later prediction of that record. Windows must
+    be in time order within each record. Returns, for the windows after each record's
+    first one: (error after calibration, error before, their record ids). Records with
+    only one window drop out, since nothing is left to score.
+    """
+    pred, true = np.asarray(pred, dtype=float), np.asarray(true, dtype=float)
+    record_ids = np.asarray(record_ids)
+    _, first, rec_index = np.unique(record_ids, return_index=True, return_inverse=True)
+    err = pred - true
+    later = np.ones(err.size, dtype=bool)
+    later[first] = False
+    after = err - err[first][rec_index]
+    return after[later], err[later], record_ids[later]

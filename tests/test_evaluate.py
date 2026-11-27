@@ -243,3 +243,37 @@ def test_feature_named_like_a_windows_column(paths):
     joblib.dump(LinearRegression().fit(X, X[FEATURES]), paths.models_dir / "hgb.joblib")
     result = evaluate.run(paths, final=False)
     assert result["models"]["hgb"]["sbp"]["mae"] == pytest.approx(0.0, abs=1e-3)
+
+
+def test_error_analysis_report(paths):
+    evaluate.run(paths, final=False)
+    a = json.loads((paths.results_dir / "error_analysis_val.json").read_text())
+    md = (paths.results_dir / "error_analysis_val.md").read_text()
+
+    assert (a["split"], a["model"]) == ("val", "hgb")
+    assert (a["n_windows"], a["n_records"]) == (6, 2)
+    # The fixture has no hr_bpm / ppg_skew / beat_corr / pat_s, so only the BP slices run.
+    slices = {s["column"]: s["rows"] for s in a["slices"]}
+    assert set(slices) == {"sbp_true", "dbp_true"}
+    # Validation SBP 110, 115 | 120, 125, 130, 135. The 200 mmHg test windows must not show.
+    sbp = {r["group"]: (r["n_windows"], r["n_records"]) for r in slices["sbp_true"]}
+    assert sbp == {"100–120": (2, 1), "120–140": (4, 2)}
+    dbp = {r["group"]: r["n_windows"] for r in slices["dbp_true"]}  # DBP = SBP - 40
+    assert dbp == {"70–80": 2, "≥ 80": 4}
+    # One calibration window per record (its first) leaves 2 of 3 windows in each record.
+    assert a["one_point_calibration"]["sbp"]["n_windows"] == 4
+    assert {r["feature"] for r in a["permutation_importance"]} == set(FEATURES)
+    assert "validation split" in md and "## True SBP (mmHg)" in md
+
+
+def test_no_error_analysis_without_the_main_model(paths):
+    (paths.models_dir / "hgb.joblib").unlink()
+    evaluate.run(paths, final=False)
+    assert not (paths.results_dir / "error_analysis_val.json").exists()
+
+
+def test_bin_labels_edges_go_up_and_nan_is_missing():
+    values = np.array([99.9, 100, 119.9, 120, 160, 250, np.nan])
+    labels, order = evaluate.bin_labels(values, [100, 120, 140, 160])
+    assert list(labels) == ["< 100", "100–120", "100–120", "120–140", "≥ 160", "≥ 160", "missing"]
+    assert order == ["< 100", "100–120", "120–140", "140–160", "≥ 160", "missing"]

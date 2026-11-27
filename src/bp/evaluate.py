@@ -17,6 +17,10 @@ Plain-language summary:
      results/figures/<split>/          scatter, Bland-Altman and error histogram per model
      app/sample_val.npz                validation run: demo preview from the main model
      app/sample.npz                    --final run: the demo's real sample (test windows)
+     results/error_analysis_<split>.md where the main model's errors are largest (Phase 3):
+     results/error_analysis_<split>.json  by true BP, heart rate, PPG quality and PAT; how
+                                       much is a fixed per-record offset; a one-reading
+                                       calibration what-if; which features it relies on
 If an input is missing, it names the file and the make step that creates it.
 
 Usage:
@@ -59,6 +63,26 @@ SAMPLE_SIZE = 200  # demo windows: 200 x 1,250 float32 samples = 1 MB
 SAMPLE_PER_RECORD = 2  # at most 2 windows per record, so the demo shows many patients
 SAMPLE_SEED = 0
 MAX_SAMPLE_BYTES = 10 * 1024 * 1024  # CLAUDE.md: the demo sample stays under 10 MB
+
+# Error analysis (Phase 3): (heading, column, cut points). The cut points are fixed, so the
+# validation and test splits are grouped the same way. A bin includes its lower edge:
+# "100–120" means 100 <= value < 120. The PPG-quality cut points are roughly the quartiles
+# of the validation windows.
+ERROR_SLICES = [
+    ("True SBP (mmHg)", "sbp_true", [100, 120, 140, 160]),
+    ("True DBP (mmHg)", "dbp_true", [50, 60, 70, 80]),
+    ("Heart rate (bpm, measured on the PPG)", "hr_bpm", [60, 80, 100, 120]),
+    ("PPG skewness: a signal-quality index, lower = noisier", "ppg_skew", [0.45, 0.65, 0.8]),
+    (
+        "Beat-shape consistency (beat_corr): lower = beats less alike",
+        "beat_corr",
+        [0.987, 0.997, 0.999],
+    ),
+]
+PAT_PRESENT, PAT_MISSING = "available", "missing (no usable ECG beats)"
+WORST_FRACTION = 0.1  # "the 10% of records with the largest offset"
+IMPORTANCE_REPEATS = 3
+IMPORTANCE_SEED = 0
 
 FINAL_BANNER = """\
 ==========================================================================
@@ -424,12 +448,191 @@ def write_demo_sample(
 # ---------------------------------------------------------------- main
 
 
+# ---------------------------------------------------------------- error analysis (Phase 3)
+
+
+def bin_labels(values: np.ndarray, edges: list[float]) -> tuple[np.ndarray, list[str]]:
+    """Label each value with its bin ("< a", "a–b", ..., "≥ z"); NaN -> "missing".
+    Returns (one label per value, every label in order)."""
+    names = [f"< {edges[0]:g}"]
+    names += [f"{lo:g}–{hi:g}" for lo, hi in zip(edges[:-1], edges[1:], strict=True)]
+    names += [f"≥ {edges[-1]:g}"]
+    values = np.asarray(values, dtype=float)
+    index = np.searchsorted(edges, values, side="right")  # a value on an edge goes up
+    labels = np.array(names, dtype=object)[np.minimum(index, len(names) - 1)]
+    labels[np.isnan(values)] = "missing"
+    return labels, [*names, "missing"]
+
+
+def permutation_importance(model, features: pd.DataFrame, true: np.ndarray) -> list[dict]:
+    """How much the MAE rises when one feature's values are shuffled across windows,
+    averaged over IMPORTANCE_REPEATS shuffles. Sorted by the total rise, biggest first."""
+    rng = np.random.default_rng(IMPORTANCE_SEED)
+    base = np.abs(model.predict(features) - true).mean(axis=0)
+    rows = []
+    for col in features.columns:
+        rises = []
+        for _ in range(IMPORTANCE_REPEATS):
+            shuffled = features.copy()
+            shuffled[col] = rng.permutation(shuffled[col].to_numpy())
+            rises.append(np.abs(model.predict(shuffled) - true).mean(axis=0) - base)
+        sbp, dbp = np.mean(rises, axis=0)
+        rows.append({"feature": col, "sbp_mae_rise": float(sbp), "dbp_mae_rise": float(dbp)})
+    return sorted(rows, key=lambda r: -(r["sbp_mae_rise"] + r["dbp_mae_rise"]))
+
+
+def error_analysis(
+    labels: pd.DataFrame,
+    features: pd.DataFrame,
+    pred: np.ndarray,
+    model,
+    split_name: str,
+    model_name: str = MAIN_MODEL,
+) -> dict:
+    """Where one model's errors are largest (Phase 3). Rows of labels, features and pred
+    line up, sorted by window_id, so each record's windows are in time order."""
+    record_ids = labels["record_id"].to_numpy()
+    true = labels[["sbp_true", "dbp_true"]].to_numpy(dtype=float)
+    errs = {t: pred[:, i] - true[:, i] for i, t in enumerate(TARGETS)}
+
+    slices = []
+    for heading, col, edges in ERROR_SLICES:
+        source = labels if col in ("sbp_true", "dbp_true") else features
+        if col not in source.columns:
+            continue  # e.g. a feature the current features.csv doesn't have
+        groups, order = bin_labels(source[col].to_numpy(), edges)
+        rows = metrics.by_group(errs, record_ids, groups, order)
+        slices.append({"heading": heading, "column": col, "rows": rows})
+    if "pat_s" in features.columns:
+        groups = np.where(features["pat_s"].isna(), PAT_MISSING, PAT_PRESENT)
+        rows = metrics.by_group(errs, record_ids, groups, [PAT_PRESENT, PAT_MISSING])
+        slices.append({"heading": "Pulse arrival time (PAT)", "column": "pat_s", "rows": rows})
+
+    offset = {
+        t: {
+            "offset_share": metrics.record_offset_share(e, record_ids),
+            "worst_records_share": metrics.worst_records_share(e, record_ids, WORST_FRACTION),
+        }
+        for t, e in errs.items()
+    }
+    calibration = {}
+    for i, t in enumerate(TARGETS):
+        after, before, cal_ids = metrics.one_point_calibration(pred[:, i], true[:, i], record_ids)
+        if after.size < 2:
+            calibration[t] = None  # too few windows after each record's first to score
+            continue
+        calibration[t] = {
+            "n_windows": int(after.size),
+            "n_records": int(np.unique(cal_ids).size),
+            "mae_before": metrics.mae(before),
+            "mae_after": metrics.mae(after),
+            "sd_before": metrics.sd_error(before),
+            "sd_after": metrics.sd_error(after),
+        }
+    return {
+        "split": split_name,
+        "model": model_name,
+        "n_windows": int(record_ids.size),
+        "n_records": int(np.unique(record_ids).size),
+        "slices": slices,
+        "record_offset": offset,
+        "one_point_calibration": calibration,
+        "permutation_importance": permutation_importance(model, features, true),
+    }
+
+
+def error_analysis_markdown(a: dict) -> str:
+    split = SPLIT_LABELS[a["split"]]
+    lines = [
+        f"# Error analysis: main model ({a['model']}), {split} split",
+        "",
+        f"Where the main model's errors are largest, on {a['n_windows']:,} {split} windows "
+        f"from {a['n_records']:,} records. Error = estimated − true, in mmHg. MAE is the "
+        "typical size of the error; ME is the bias (positive = reads too high). Groups use "
+        "fixed cut points, so the validation and test splits are cut the same way; "
+        '"100–120" means 100 ≤ value < 120.',
+        "",
+    ]
+    for s in a["slices"]:
+        lines += [
+            f"## {s['heading']}",
+            "",
+            "| Group | Windows | Records | SBP MAE | SBP ME | DBP MAE | DBP ME |",
+            "|---|---:|---:|---:|---:|---:|---:|",
+        ]
+        lines += [
+            f"| {r['group']} | {r['n_windows']:,} | {r['n_records']:,} | {r['sbp_mae']:.1f} "
+            f"| {r['sbp_me']:+.1f} | {r['dbp_mae']:.1f} | {r['dbp_me']:+.1f} |"
+            for r in s["rows"]
+        ]
+        lines.append("")
+
+    o = a["record_offset"]
+    pct = f"{WORST_FRACTION:.0%}"
+    lines += [
+        "## How much of the error is a fixed offset per record",
+        "",
+        "| | SBP | DBP |",
+        "|---|---:|---:|",
+        "| Share of the squared error that is each record's constant offset "
+        f"| {o['sbp']['offset_share']:.0%} | {o['dbp']['offset_share']:.0%} |",
+        f"| Share of the squared error in the {pct} of records with the largest offset "
+        f"| {o['sbp']['worst_records_share']:.0%} | {o['dbp']['worst_records_share']:.0%} |",
+        "",
+        "A high offset share means the model is off by about the same amount for every "
+        "window of a record: it misjudges that patient's baseline, rather than being noisy "
+        "from window to window. Records have no patient IDs, so a record stands in for a "
+        "patient.",
+        "",
+    ]
+
+    cal = a["one_point_calibration"]
+    if all(cal.values()):
+        lines += [
+            "## What-if: one calibration reading per record",
+            "",
+            "Cuffless devices are often calibrated once against a cuff. To estimate what "
+            "that would do, the first window of each record plays the calibration reading: "
+            "its error is subtracted from every later prediction of that record, and only "
+            "the later windows are scored. This is a different use case (it needs a "
+            "reference reading per patient), not the headline result.",
+            "",
+            "| | Windows | Records | MAE before | MAE after | SD before | SD after |",
+            "|---|---:|---:|---:|---:|---:|---:|",
+        ]
+        lines += [
+            f"| {t.upper()} | {c['n_windows']:,} | {c['n_records']:,} | {c['mae_before']:.1f} "
+            f"| {c['mae_after']:.1f} | {c['sd_before']:.1f} | {c['sd_after']:.1f} |"
+            for t, c in cal.items()
+        ]
+        lines.append("")
+
+    lines += [
+        "## Which features the model relies on",
+        "",
+        f"Permutation importance: how much the {split} MAE rises when one feature's values "
+        f"are shuffled across windows ({IMPORTANCE_REPEATS} repeats, fixed seed). A bigger "
+        "rise means the model leans on that feature more. A feature can rank low because "
+        "another feature carries the same information.",
+        "",
+        "| Feature | SBP MAE rise | DBP MAE rise |",
+        "|---|---:|---:|",
+    ]
+    lines += [
+        f"| {r['feature']} | {r['sbp_mae_rise']:+.2f} | {r['dbp_mae_rise']:+.2f} |"
+        for r in a["permutation_importance"]
+    ]
+    lines += ["", "Generated by `python -m bp.evaluate`; do not edit by hand."]
+    return "\n".join(lines) + "\n"
+
+
 def run(paths: Paths, final: bool, main_model: str = MAIN_MODEL) -> dict:
     """Score every model on one split and write every output. Returns metrics.json content."""
     split = json.loads(require(paths.split_file, "make windows").read_text())
     split_name, records = split_records(split, final)
     labels, features = load_split_windows(paths, records)
-    preds = predict(load_models(paths.models_dir), features)
+    models = load_models(paths.models_dir)
+    preds = predict(models, features)
     table = predictions_table(labels.drop(columns="npz_row"), preds)
     result = compute_metrics(table, split_name)
 
@@ -454,6 +657,15 @@ def run(paths: Paths, final: bool, main_model: str = MAIN_MODEL) -> dict:
         written.append(
             write_demo_sample(labels, preds[main_model], entry, paths.windows_npz, sample)
         )
+        analysis = error_analysis(
+            labels, features, preds[main_model], models[main_model], split_name, main_model
+        )
+        with atomic_write(out / f"error_analysis_{split_name}.json", "w") as f:
+            json.dump(rounded(analysis), f, indent=2)
+            f.write("\n")
+        with atomic_write(out / f"error_analysis_{split_name}.md", "w") as f:
+            f.write(error_analysis_markdown(analysis))
+        written += [out / f"error_analysis_{split_name}.{ext}" for ext in ("json", "md")]
     else:
         print(f"note: no {main_model!r} model in {paths.models_dir} yet, so no demo sample")
 

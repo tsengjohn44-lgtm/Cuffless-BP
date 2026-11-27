@@ -159,3 +159,68 @@ def test_sd_needs_two_windows():
 def test_record_ids_must_match_errors():
     with pytest.raises(ValueError, match="record_ids"):
         m.bootstrap_mae_ci(np.array([1.0, 2.0]), ["a"])
+
+
+# ---------------------------------------------------------------- error analysis (Phase 3)
+# Same 5 windows: SBP errors -6, -3, 0, 4, 10; records 1_0001 (-6, -3), 1_0002 (0, 4),
+# 1_0003 (10). Record offsets (mean error): -4.5, 2, 10.
+ERR = np.array([-6.0, -3.0, 0.0, 4.0, 10.0])
+
+
+def test_by_group_by_hand():
+    errs = {"sbp": ERR, "dbp": np.array([1.0, -1.0, 2.0, -2.0, 0.0])}
+    groups = ["a", "a", "b", "b", "a"]
+
+    rows = m.by_group(errs, RECORDS, groups, ["a", "b", "c"])
+
+    assert [r["group"] for r in rows] == ["a", "b"]  # empty group "c" left out
+    a, b = rows
+    # a = windows 0, 1, 4: SBP errors -6, -3, 10 -> MAE 19/3, ME 1/3; DBP 1, -1, 0
+    assert (a["n_windows"], a["n_records"]) == (3, 2)
+    assert a["sbp_mae"] == pytest.approx(19 / 3)
+    assert a["sbp_me"] == pytest.approx(1 / 3)
+    assert a["dbp_mae"] == pytest.approx(2 / 3)
+    assert a["dbp_me"] == pytest.approx(0.0)
+    # b = windows 2, 3: SBP 0, 4 -> MAE 2, ME 2; DBP 2, -2 -> MAE 2, ME 0
+    assert (b["n_windows"], b["n_records"]) == (2, 1)
+    assert (b["sbp_mae"], b["sbp_me"], b["dbp_mae"], b["dbp_me"]) == (2.0, 2.0, 2.0, 0.0)
+
+
+def test_record_offset_share_by_hand():
+    # offset per window: -4.5, -4.5, 2, 2, 10 -> squares sum 20.25*2 + 4*2 + 100 = 148.5
+    # squared errors sum 36 + 9 + 0 + 16 + 100 = 161 -> share 148.5 / 161
+    assert m.record_offset_share(ERR, RECORDS) == pytest.approx(148.5 / 161)
+
+
+def test_record_offset_share_extremes():
+    recs = ["a", "a", "b", "b"]
+    assert m.record_offset_share(np.array([5.0, 5.0, -2.0, -2.0]), recs) == pytest.approx(1.0)
+    assert m.record_offset_share(np.array([3.0, -3.0, 1.0, -1.0]), recs) == pytest.approx(0.0)
+    assert m.record_offset_share(np.zeros(4), recs) == 0.0  # no error: no offset
+
+
+def test_worst_records_share_by_hand():
+    # squared error per record: 1_0001 36+9 = 45, 1_0002 0+16 = 16, 1_0003 100; total 161.
+    # Largest |offset|: 1_0003 (10), then 1_0001 (4.5), then 1_0002 (2).
+    assert m.worst_records_share(ERR, RECORDS, fraction=1 / 3) == pytest.approx(100 / 161)
+    assert m.worst_records_share(ERR, RECORDS, fraction=2 / 3) == pytest.approx(145 / 161)
+
+
+def test_one_point_calibration_by_hand():
+    after, before, ids = m.one_point_calibration(PRED, TRUE, RECORDS)
+    # 1_0001: first error -6, later -3 -> -3 - (-6) = 3. 1_0002: first 0, later 4 -> 4.
+    # 1_0003 has one window only, so nothing is left to score.
+    np.testing.assert_allclose(after, [3.0, 4.0])
+    np.testing.assert_allclose(before, [-3.0, 4.0])
+    assert list(ids) == ["1_0001", "1_0002"]
+
+
+def test_one_point_calibration_uses_each_records_first_window():
+    # Records interleaved; a constant offset per record vanishes after calibration.
+    pred = [130, 95, 131, 96, 129]  # record x reads +10, record y reads -5 (+/- noise)
+    true = [120, 100, 120, 100, 120]
+    # errors 10, -5, 11, -4, 9. First window of x is #0 (error 10), of y is #1 (error -5).
+    after, before, ids = m.one_point_calibration(pred, true, ["x", "y", "x", "y", "x"])
+    np.testing.assert_allclose(before, [11, -4, 9])  # windows #2, #3, #4
+    np.testing.assert_allclose(after, [11 - 10, -4 + 5, 9 - 10])
+    assert list(ids) == ["x", "y", "x"]
