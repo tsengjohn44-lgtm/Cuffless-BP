@@ -87,6 +87,32 @@ Long format: one row per window per model.
 Errors are `pred - true`. `me`, `sd`, `mae` in mmHg; `pct_*` in percent (0–100).
 `mae_ci95` comes from bootstrapping records, 1,000 resamples.
 
+When the main model (`hgb`) was scored, `metrics.json` also has an `"error_analysis"` section
+(Phase 3): where the main model's errors are largest. `results/error_analysis_<split>.md`
+shows the same numbers as tables. The README's error-analysis numbers come from here.
+```json
+"error_analysis": {
+  "model": "hgb", "n_windows": 0, "n_records": 0,
+  "slices": [
+    {"heading": "True SBP (mmHg)", "column": "sbp_true",
+     "rows": [{"group": "100–120", "n_windows": 0, "n_records": 0,
+               "sbp_mae": 0.0, "sbp_me": 0.0, "dbp_mae": 0.0, "dbp_me": 0.0}]}],
+  "record_offset": {"sbp": {"offset_share": 0.0, "worst_records_share": 0.0},
+                    "dbp": {"...": "same keys"}},
+  "one_point_calibration": {"sbp": {"n_windows": 0, "n_records": 0,
+                                    "mae_before": 0.0, "mae_after": 0.0,
+                                    "sd_before": 0.0, "sd_after": 0.0},
+                            "dbp": {"...": "same keys"}},
+  "permutation_importance": [{"feature": "pat_s", "sbp_mae_rise": 0.0, "dbp_mae_rise": 0.0}]}
+```
+- `slices`: one per grouping: true SBP, true DBP, `hr_bpm`, `ppg_skew`, `beat_corr`, and
+  whether `pat_s` is available. Group `"a–b"` means a ≤ value < b; the others are `"< a"`,
+  `"≥ b"` and `"missing"`. Empty groups are left out.
+- `offset_share` and `worst_records_share` are fractions from 0 to 1, not percent.
+  `worst_records_share` covers the 10% of records with the largest mean error.
+- `one_point_calibration.<target>` is `null` when too few windows are left to score.
+- `permutation_importance`: rise in MAE (mmHg) when one feature is shuffled, biggest first.
+
 ## 7. Demo sample (`evaluate.py --final` → `app/demo.py`)
 `app/sample.npz`, under 10 MB, test windows only, from the main model:
 `ppg` (k, 1250) float32, `record_id` (k,) str, `sbp_true`, `dbp_true`, `sbp_pred`,
