@@ -4,9 +4,10 @@ Estimates systolic (SBP) and diastolic (DBP) blood pressure from a fingertip pul
 
 > **Research demo, not a medical device.** Do not use these estimates to make health decisions.
 
-**Status (Nov 26, 2026):** the held-out test split has been scored, once (Phase 4), and the
-results below are from that run. `TODO` markers remain for the demo link, the team and the
-fresh-environment reproduction check (Phase 5). Every number below comes from a file in `results/` or `splits/`.
+**Status (Nov 26, 2026):** complete. The held-out test split was scored once (Phase 4), the
+results below are from that run, and a fresh clone reproduces them (see
+[Reproducing the evaluation](#reproducing-the-evaluation)). `TODO` markers remain only for
+the team, the hosted demo link and the video.
 
 ## The problem and who has it
 
@@ -37,7 +38,7 @@ cp .env.example .env                # optional: change where the data is stored
 
 | Command | What it does |
 |---|---|
-| `make all` | Downloads the data and rebuilds every validation result from scratch |
+| `make all` | Downloads the data and rebuilds every model and validation result from scratch |
 | `make demo` | Starts the Streamlit demo (no dataset or wifi needed) |
 | `make test` | Runs the unit tests (pytest) |
 | `make data` | Downloads `Part_1.mat` (about 0.8 GB) into `data/raw` |
@@ -47,7 +48,7 @@ cp .env.example .env                # optional: change where the data is stored
 | `make baselines` | Fits baseline 1 (and baseline 2) on the training split |
 | `make train` | Tunes the main model on the validation split and saves the best setting |
 | `make eval` | Scores every saved model on the **validation** split |
-| `make final` | Scores every model on the **test** split. Run once, in Phase 4 only |
+| `make final` | Scores every model on the held-out **test** split. Run once for the results below; re-running it after `make all` reproduces them |
 
 ### Reproducing the evaluation
 
@@ -59,9 +60,24 @@ holds whichever split ran last; the committed one is the test run, so to reprodu
 committed results run `make all` and then `make final`.
 
 The split is committed in `splits/split.json`, and all random steps use fixed seeds, so the
-same commit gives the same numbers on any machine with the pinned versions.
+same commit should give the same numbers on any machine with the pinned versions.
 
-> TODO: confirm reproduction in a fresh environment (Phase 5) and note the run time.
+**Checked in a fresh environment (Nov 27, 2026).** We cloned the repo from GitHub into a new
+folder, created a new virtual environment with the pinned packages downloaded fresh from PyPI,
+and let `make data` download Part_1 again, reusing nothing from the development checkout.
+`make test`, `make all` and `make final` then rebuilt every committed file in `results/`,
+`splits/` and `app/` byte for byte: afterwards `git status` showed no changed or new files.
+Run time on a 16-core Apple-silicon Mac (macOS, Python 3.11): installing the packages took
+under a minute, downloading Part_1 about 1.5 minutes, and all other steps except training
+about 2.5 minutes together. Tuning the main model (16 settings) takes about 20 minutes, so the
+whole run takes about 25 minutes. Not checked: Linux or Windows, where floating-point results
+could differ in the last digits.
+
+**Where the numbers come from.** Every result in this README (errors, grades, confidence
+intervals, the error analysis) comes from `results/metrics.json`. The data counts come from
+`results/window_filters.json` and `splits/split.json`, written by `make windows`. Two
+descriptive numbers in Method (records shorter than 10 s, the median pulse arrival time) come
+from the output of `make windows` and from the feature table `make features` writes.
 
 ## Data
 
@@ -245,11 +261,13 @@ Other limits, known before any numbers:
 
 `make demo` starts a Streamlit app: pick a held-out window, see its PPG waveform, the model's
 SBP/DBP next to the true arterial values, the model's typical error band, and its AAMI/BHS
-result. It runs from `app/sample.npz` (a small sample of test windows written by `make final`)
-with no download or wifi, and falls back to a validation preview (`app/sample_val.npz`) until
-then. If anything fails to load, it shows a message instead of crashing.
+result. It runs from `app/sample.npz` (200 test windows written by `make final`) with no
+download or wifi; without that file it falls back to a validation preview
+(`app/sample_val.npz`). If anything fails to load, it shows a message instead of crashing.
 
-> TODO: demo link, screenshot and video link.
+![The demo: one held-out test window, its PPG, the estimated vs. true SBP and DBP, and the model's test accuracy](app/demo_screenshot.png)
+
+> TODO: hosted demo link and video link.
 
 ## Who benefits, and who could be harmed
 
