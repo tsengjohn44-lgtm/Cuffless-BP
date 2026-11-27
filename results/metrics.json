@@ -5,32 +5,32 @@
       "sbp": {
         "n_windows": 9369,
         "n_records": 390,
-        "me": -0.191,
-        "sd": 15.132,
-        "mae": 10.668,
+        "me": -0.014,
+        "sd": 14.757,
+        "mae": 10.292,
         "mae_ci95": [
-          9.693,
-          11.743
+          9.282,
+          11.425
         ],
-        "pct_within_5": 38.83,
-        "pct_within_10": 62.056,
-        "pct_within_15": 74.96,
+        "pct_within_5": 41.338,
+        "pct_within_10": 62.824,
+        "pct_within_15": 75.6,
         "bhs_grade": "D",
         "aami_pass": false
       },
       "dbp": {
         "n_windows": 9369,
         "n_records": 390,
-        "me": -0.687,
-        "sd": 8.816,
-        "mae": 5.849,
+        "me": -0.696,
+        "sd": 8.783,
+        "mae": 5.755,
         "mae_ci95": [
-          5.213,
-          6.502
+          5.096,
+          6.409
         ],
-        "pct_within_5": 59.964,
-        "pct_within_10": 83.296,
-        "pct_within_15": 91.781,
+        "pct_within_5": 61.533,
+        "pct_within_10": 83.595,
+        "pct_within_15": 91.589,
         "bhs_grade": "B",
         "aami_pass": false
       }

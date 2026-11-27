@@ -4,9 +4,9 @@ Estimates systolic (SBP) and diastolic (DBP) blood pressure from a fingertip pul
 
 > **Research demo, not a medical device.** Do not use these estimates to make health decisions.
 
-**Status (Nov 26, 2026):** data pipeline, features, metrics and evaluation code are in place.
-Baseline 2 and the main model are still being built, so this README has `TODO` markers
-where results will go. Every number below comes from a file in `results/` or `splits/`.
+**Status (Nov 26, 2026):** data pipeline, both baselines, the main model, evaluation and the
+error analysis are in place. The held-out test split has not been scored yet (Phase 4), so
+this README has `TODO` markers where test results will go. Every number below comes from a file in `results/` or `splits/`.
 
 ## The problem and who has it
 
@@ -45,7 +45,7 @@ cp .env.example .env                # optional: change where the data is stored
 | `make windows` | Cuts 10 s windows, labels SBP/DBP, applies quality filters, makes the split |
 | `make features` | Computes PPG and ECG features per window |
 | `make baselines` | Fits baseline 1 (and baseline 2) on the training split |
-| `make train` | Trains the main model (TODO: not built yet, this step currently fails) |
+| `make train` | Tunes the main model on the validation split and saves the best setting |
 | `make eval` | Scores every saved model on the **validation** split |
 | `make final` | Scores every model on the **test** split. Run once, in Phase 4 only |
 
@@ -130,8 +130,8 @@ to PPG upstroke in this dataset", not a true physiological pulse arrival time.
 | Model | What it is |
 |---|---|
 | Baseline 1 (`mean_baseline`) | Predicts the training mean SBP and DBP for every window. Anything worse than this has learned nothing |
-| Baseline 2 (`pat_linear`) | Pulse arrival time + heart rate into linear regression. TODO: not built yet |
-| Main (`hgb`) | `HistGradientBoostingRegressor`, one for SBP and one for DBP, on the PPG features. TODO: not built yet |
+| Baseline 2 (`pat_linear`) | Pulse arrival time + heart rate into one linear regression for SBP and DBP. A window with no PAT gets the training median |
+| Main (`hgb`) | `HistGradientBoostingRegressor`, one for SBP and one for DBP, on all the features above. `make train` tries 16 settings (learning rate, number of trees, tree size, smallest leaf), keeps the one with the lowest validation MAE and prints the table |
 
 ## Evaluation
 
@@ -177,17 +177,47 @@ tuned after it.
 
 ### Where it works and where it fails
 
-> TODO (Phase 3 error analysis): error by true BP range, by heart rate and by PPG quality
-> (`n_ppg_beats`, `beat_corr`, `ppg_skew`).
+Measured on the **validation** split (9,369 windows from 390 records), for the main model.
+Every table, including how much the model relies on each feature, is in
+`results/error_analysis_val.md`, written by `make eval`. In Phase 4, `make final` writes the
+same tables for the test split.
 
-Conditions under which the result stops being useful, known before any numbers:
+- **Extreme pressures, the biggest weakness.** The model pulls its estimates toward the
+  middle of the range. When true SBP is below 100 mmHg it reads 13.4 mmHg too high on
+  average (MAE 14.4); at 160 mmHg and above it reads 14.3 too low (MAE 15.8). Between 120
+  and 160 mmHg the MAE is 8.4–8.5. DBP of 80 mmHg and above is read 13.7 too low (MAE 14.3).
+  So the error is largest for low and high blood pressure, where a reading matters most.
+- **Most of the error is a fixed offset per patient.** 72% of the SBP squared error (75% for
+  DBP) is a constant offset per record: for a given record the model is consistently too
+  high or too low, rather than noisy from one window to the next. The 10% of records with
+  the largest offset hold 44% of the SBP squared error (57% for DBP). The pulse shape alone
+  does not tell the model a patient's baseline pressure.
+- **One calibration reading helps less than that suggests.** If each record's first window
+  served as a cuff reading and its error were subtracted from the later windows, SBP MAE
+  would drop from 10.3 to 9.1 mmHg and DBP from 5.7 to 4.7. One 10 s window is a noisy
+  estimate of the offset, and pressure drifts within a record. This needs a reference
+  reading for every patient, so it is a different use case, not our headline result.
+- **Fast heart rate.** Error is lowest at 60–80 bpm (MAE: SBP 9.7, DBP 4.7) and higher at
+  100–120 bpm (SBP 11.9, DBP 6.9). Above 120 bpm, DBP is read 7.2 mmHg too low (MAE 9.4),
+  but only 18 records reach that rate.
+- **Noisy PPG.** By PPG skewness, a common signal-quality index, the noisiest windows
+  (skewness below 0.45, about a quarter of them) have MAE SBP 11.7 / DBP 7.0, against
+  8.7 / 4.5 for the cleanest (0.8 and above). Beat-shape consistency (`beat_corr`) shows no
+  clear trend.
+- **No ECG, no pulse arrival time.** In the 9% of windows where PAT cannot be measured, MAE
+  rises from 10.1 to 11.9 mmHg for SBP and from 5.6 to 7.6 for DBP. PAT is the feature the
+  model leans on most for SBP: shuffling it raises SBP MAE by 4.0 mmHg. As noted under
+  Method, this PAT likely includes a recording delay that differs between records, so part
+  of what the model learns from it may not carry over to other equipment.
+
+Other limits, known before any numbers:
 
 - **Outside ICU patients with arterial lines.** The model has only seen sedated, monitored
   ICU patients. It is untested on healthy people, on people moving, or on phone and watch
   sensors, whose PPG looks different from a clinical finger probe.
 - **Extreme pressures.** Very high and very low BP are rare in the data, and tree models
-  cannot predict outside the range they were trained on, so the error is likely largest
-  exactly where a reading matters most.
+  cannot predict outside the range they were trained on. The validation numbers above
+  confirm that the error is largest there.
 - **Noisy or clipped PPG.** Windows with clipped PPG are dropped; on a real device they would
   need to be detected and rejected, not estimated.
 - **A new patient.** There are no patient IDs, so the same person may appear in train and test.
