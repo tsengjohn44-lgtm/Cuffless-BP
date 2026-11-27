@@ -4,9 +4,9 @@ Estimates systolic (SBP) and diastolic (DBP) blood pressure from a fingertip pul
 
 > **Research demo, not a medical device.** Do not use these estimates to make health decisions.
 
-**Status (Nov 26, 2026):** data pipeline, both baselines, the main model, evaluation and the
-error analysis are in place. The held-out test split has not been scored yet (Phase 4), so
-this README has `TODO` markers where test results will go. Every number below comes from a file in `results/` or `splits/`.
+**Status (Nov 26, 2026):** the held-out test split has been scored, once (Phase 4), and the
+results below are from that run. `TODO` markers remain for the demo link, the team and the
+fresh-environment reproduction check (Phase 5). Every number below comes from a file in `results/` or `splits/`.
 
 ## The problem and who has it
 
@@ -54,7 +54,9 @@ cp .env.example .env                # optional: change where the data is stored
 `make all` runs `data → windows → features → baselines → train → eval` and writes
 `results/metrics.json`, `results/comparison_val.md`, `results/predictions_val.csv` and
 the figures in `results/figures/val/`. The held-out test numbers come from a single
-`make final` run, written to the same places with `test` in the name.
+`make final` run, written to the same places with `test` in the name. `results/metrics.json`
+holds whichever split ran last; the committed one is the test run, so to reproduce the
+committed results run `make all` and then `make final`.
 
 The split is committed in `splits/split.json`, and all random steps use fixed seeds, so the
 same commit gives the same numbers on any machine with the pinned versions.
@@ -156,56 +158,70 @@ tuned after it.
 
 ### Results
 
-> TODO: paste the test table from `results/comparison_test.md` after `make final` (Phase 4).
-> Until then, the validation table from `results/comparison_val.md` can go here, labelled as
-> validation.
+Held-out **test** split: 9,002 windows from 403 records that played no part in training or
+tuning, scored once by `make final`. From `results/metrics.json` (also
+`results/comparison_test.md`). Errors in mmHg, predicted − true.
 
 | Model | Target | ME ± SD (mmHg) | MAE (95% CI) | ≤5 / ≤10 / ≤15 mmHg | BHS | AAMI |
 |---|---|---|---|---|---|---|
-| Baseline 1 | SBP | TODO | TODO | TODO | TODO | TODO |
-| Baseline 1 | DBP | TODO | TODO | TODO | TODO | TODO |
-| Baseline 2 | SBP | TODO | TODO | TODO | TODO | TODO |
-| Baseline 2 | DBP | TODO | TODO | TODO | TODO | TODO |
-| Main (`hgb`) | SBP | TODO | TODO | TODO | TODO | TODO |
-| Main (`hgb`) | DBP | TODO | TODO | TODO | TODO | TODO |
+| Baseline 1 | SBP | +0.7 ± 22.7 | 19.1 (17.7–20.4) | 12 / 28 / 42% | D | fail |
+| Baseline 1 | DBP | -0.5 ± 11.2 | 8.7 (7.8–9.5) | 32 / 66 / 90% | D | fail |
+| Baseline 2 | SBP | +0.3 ± 20.8 | 17.1 (15.8–18.3) | 14 / 32 / 51% | D | fail |
+| Baseline 2 | DBP | -0.3 ± 11.0 | 8.4 (7.6–9.3) | 35 / 67 / 90% | D | fail |
+| Main (`hgb`) | SBP | -0.3 ± 15.4 | 10.7 (9.4–11.9) | 40 / 63 / 76% | D | fail |
+| Main (`hgb`) | DBP | +0.6 ± 9.4 | 6.1 (5.3–7.0) | 60 / 81 / 90% | B | fail |
 
-> TODO: add the figures from `results/figures/test/`: predicted vs. true, Bland-Altman,
-> error histogram for the main model.
+![Main model, predicted vs. true SBP and DBP on the test split](results/figures/test/hgb_scatter.png)
+![Main model, Bland-Altman plot on the test split](results/figures/test/hgb_bland_altman.png)
+![Main model, error histogram on the test split](results/figures/test/hgb_error_hist.png)
 
-> TODO: one paragraph on what the numbers mean, in plain words. Missing AAMI is normal for
-> cuffless methods; say so if it happens.
+**What the numbers mean.** On recordings it had never seen, the main model's typical
+error is 10.7 mmHg for SBP and 6.1 mmHg for DBP. That is roughly half the error of guessing
+the average pressure every time (baseline 1: 19.1 and 8.7), and clearly better than the
+classic pulse-arrival-time formula (baseline 2: 17.1 and 8.4); for both targets the main
+model's 95% confidence interval does not overlap either baseline's. Its estimates are not
+biased overall (mean error −0.3 and +0.6 mmHg), but they scatter too widely: the standard
+deviation of the error is 15.4 mmHg for SBP and 9.4 for DBP, above AAMI's limit of 8, so it
+**fails the AAMI criterion for both**, as cuffless methods usually do. By the BHS grades, DBP
+reaches **B**, narrowly (90.3% of windows within 15 mmHg against a cut-off of 90%), and SBP is
+D. The test results are slightly worse than validation (`results/comparison_val.md`), as
+expected after choosing the model's settings on validation. In short: much better than the
+baselines, but not accurate enough to replace a cuff.
 
 ### Where it works and where it fails
 
-Measured on the **validation** split (9,369 windows from 390 records), for the main model.
-`make eval` stores these numbers in the `error_analysis` section of `results/metrics.json`
-and shows them as tables in `results/error_analysis_val.md`, including how much the model
-relies on each feature. In Phase 4, `make final` does the same for the test split.
+Measured on the **test** split (9,002 windows from 403 records), for the main model. `make
+final` stores these numbers in the `error_analysis` section of `results/metrics.json` and
+shows them as tables in `results/error_analysis_test.md`, including how much the model
+relies on each feature. The same analysis on the validation split, written in Phase 3 before
+the test run, is in `results/error_analysis_val.md`; the patterns below were already visible
+there.
 
 - **Extreme pressures, the biggest weakness.** The model pulls its estimates toward the
-  middle of the range. When true SBP is below 100 mmHg it reads 13.4 mmHg too high on
-  average (MAE 14.4); at 160 mmHg and above it reads 14.3 too low (MAE 15.8). Between 120
-  and 160 mmHg the MAE is 8.4–8.5. DBP of 80 mmHg and above is read 13.7 too low (MAE 14.3).
+  middle of the range. When true SBP is below 100 mmHg it reads 15.4 mmHg too high on
+  average (MAE 16.5); at 160 mmHg and above it reads 15.8 too low (MAE 17.4). Between 120
+  and 140 mmHg the MAE is 7.9. DBP of 80 mmHg and above is read 12.9 too low (MAE 14.2).
   So the error is largest for low and high blood pressure, where a reading matters most.
-- **Most of the error is a fixed offset per patient.** 72% of the SBP squared error (75% for
+- **Most of the error is a fixed offset per patient.** 74% of the SBP squared error (78% for
   DBP) is a constant offset per record: for a given record the model is consistently too
   high or too low, rather than noisy from one window to the next. The 10% of records with
-  the largest offset hold 44% of the SBP squared error (57% for DBP). The pulse shape alone
+  the largest offset hold 46% of the SBP squared error (61% for DBP). The pulse shape alone
   does not tell the model a patient's baseline pressure.
 - **One calibration reading helps less than that suggests.** If each record's first window
-  served as a cuff reading and its error were subtracted from the later windows, SBP MAE
-  would drop from 10.3 to 9.1 mmHg and DBP from 5.7 to 4.7. One 10 s window is a noisy
-  estimate of the offset, and pressure drifts within a record. This needs a reference
-  reading for every patient, so it is a different use case, not our headline result.
-- **Fast heart rate.** Error is lowest at 60–80 bpm (MAE: SBP 9.7, DBP 4.7) and higher at
-  100–120 bpm (SBP 11.9, DBP 6.9). Above 120 bpm, DBP is read 7.2 mmHg too low (MAE 9.4),
-  but only 18 records reach that rate.
-- **Noisy PPG.** By PPG skewness, a common signal-quality index, the noisiest windows
-  (skewness below 0.45, about a quarter of them) have MAE SBP 11.7 / DBP 7.0, against
-  8.7 / 4.5 for the cleanest (0.8 and above). Beat-shape consistency (`beat_corr`) shows no
-  clear trend.
-- **No ECG, no pulse arrival time.** In the 9% of windows where PAT cannot be measured, MAE
-  rises from 10.1 to 11.9 mmHg for SBP and from 5.6 to 7.6 for DBP. PAT is the feature the
+  served as a cuff reading and its error were subtracted from the later windows, SBP MAE on
+  those windows would drop from 10.6 to 8.6 mmHg and DBP from 6.1 to 4.5. One 10 s window is
+  a noisy estimate of the offset, and pressure drifts within a record. This needs a
+  reference reading for every patient, so it is a different use case, not our headline
+  result.
+- **Fast heart rate.** Error is lowest at 60–80 bpm (MAE: SBP 9.6, DBP 5.0) and higher at
+  100–120 bpm (SBP 12.7, DBP 8.9). Above 120 bpm the SBP MAE is 15.3, but only 16 records
+  reach that rate.
+- **Noisy PPG, mainly for SBP.** By PPG skewness, a common signal-quality index, the
+  noisiest windows (skewness below 0.45, about a third of them) have SBP MAE 11.4, against
+  9.6 for the cleanest (0.8 and above). For DBP the effect is weak (6.0 against 5.4), and
+  beat-shape consistency (`beat_corr`) shows no clear trend.
+- **No ECG, no pulse arrival time.** In the 10% of windows where PAT cannot be measured, MAE
+  rises from 10.5 to 11.6 mmHg for SBP and from 5.9 to 7.8 for DBP. PAT is the feature the
   model leans on most for SBP: shuffling it raises SBP MAE by 4.0 mmHg. As noted under
   Method, this PAT likely includes a recording delay that differs between records, so part
   of what the model learns from it may not carry over to other equipment.
@@ -216,8 +232,8 @@ Other limits, known before any numbers:
   ICU patients. It is untested on healthy people, on people moving, or on phone and watch
   sensors, whose PPG looks different from a clinical finger probe.
 - **Extreme pressures.** Very high and very low BP are rare in the data, and tree models
-  cannot predict outside the range they were trained on. The validation numbers above
-  confirm that the error is largest there.
+  cannot predict outside the range they were trained on. The test numbers above confirm
+  that the error is largest there.
 - **Noisy or clipped PPG.** Windows with clipped PPG are dropped; on a real device they would
   need to be detected and rejected, not estimated.
 - **A new patient.** There are no patient IDs, so the same person may appear in train and test.
