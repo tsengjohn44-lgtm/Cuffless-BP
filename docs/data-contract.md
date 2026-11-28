@@ -1,4 +1,4 @@
-# Data contract (v0.1 — draft, needs a team OK)
+# Data contract (v1.0, agreed by the team on Nov 28, 2026)
 
 Every track builds against this file. Don't change it from a track branch:
 propose the change in a PR or chat and wait for an OK.
