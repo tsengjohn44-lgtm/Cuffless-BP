@@ -1,0 +1,9 @@
+# Streamlit settings for `make demo`.
+# The demo must run on stage with no wifi, so Streamlit does not try to send usage stats
+# (that request fails offline and logs an error in the browser console).
+[browser]
+gatherUsageStats = false
+
+# Hide the "Deploy" button and developer menu items in the demo.
+[client]
+toolbarMode = "minimal"

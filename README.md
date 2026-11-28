@@ -4,7 +4,7 @@ Estimates systolic (SBP) and diastolic (DBP) blood pressure from a fingertip pul
 
 > **Research demo, not a medical device.** Do not use these estimates to make health decisions.
 
-**Status (Nov 26, 2026):** complete. The held-out test split was scored once (Phase 4), the
+**Status (Nov 27, 2026):** complete. The held-out test split was scored once (Phase 4), the
 results below are from that run, and a fresh clone reproduces them (see
 [Reproducing the evaluation](#reproducing-the-evaluation)). `TODO` markers remain only for
 the team, the hosted demo link and the video.
