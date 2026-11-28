@@ -9,7 +9,7 @@ results below are from that run, and a fresh clone reproduces them (see
 [Reproducing the evaluation](#reproducing-the-evaluation)). `TODO` markers remain only for
 the team, the hosted demo link and the video.
 
-## The problem and who has it
+## The Problem and Who has it
 
 High blood pressure is a leading risk factor for stroke and heart disease, and it often
 goes unnoticed because measuring it needs a cuff and a deliberate check. An optical pulse
@@ -50,7 +50,7 @@ cp .env.example .env                # optional: change where the data is stored
 | `make eval` | Scores every saved model on the **validation** split |
 | `make final` | Scores every model on the held-out **test** split. Run once for the results below; re-running it after `make all` reproduces them |
 
-### Reproducing the evaluation
+### Reproducing the Evaluation
 
 `make all` runs `data → windows → features → baselines → train → eval` and writes
 `results/metrics.json`, `results/comparison_val.md`, `results/predictions_val.csv` and
