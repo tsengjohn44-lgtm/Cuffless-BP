@@ -74,7 +74,10 @@ whole run takes about 25 minutes. Not checked: Linux or Windows, where floating-
 could differ in the last digits.
 
 **Where the numbers come from.** Every result in this README (errors, grades, confidence
-intervals, the error analysis) comes from `results/metrics.json`. The data counts come from
+intervals, the error analysis) comes from `results/metrics.json`, except the leakage check,
+which comes from `results/leakage_check.json` (written by
+`PYTHONPATH=src python tools/leakage_check.py` after `make all`; it reads train and validation
+only). The data counts come from
 `results/window_filters.json` and `splits/split.json`, written by `make windows`. Two
 descriptive numbers in Method (records shorter than 10 s, the median pulse arrival time) come
 from the output of `make windows` and from the feature table `make features` writes.
@@ -202,7 +205,42 @@ deviation of the error is 15.4 mmHg for SBP and 9.4 for DBP, above AAMI's limit 
 reaches **B**, narrowly (90.3% of windows within 15 mmHg against a cut-off of 90%), and SBP is
 D. The test results are slightly worse than validation (`results/comparison_val.md`), as
 expected after choosing the model's settings on validation. In short: much better than the
-baselines, but not accurate enough to replace a cuff.
+baselines **on recordings from patients it may already have seen**, but not accurate enough to
+replace a cuff. On a truly new patient the gain is much smaller; see the leakage check below.
+
+### Leakage check: how much of the gain is recognising patients?
+
+The dataset has no patient IDs, and our split is by record. If one patient's records sit on
+both sides, the model can learn "this person's pulse shape → this person's BP" instead of a
+rule that carries over to new people. `tools/leakage_check.py` measures this on the
+**training and validation records only** (the test split is never read), and writes
+`results/leakage_check.json`.
+
+**Neighbouring records are the same patient.** The average SBP of a record correlates at
+0.80 with the record whose id comes next (DBP 0.70), against 0.01 for random pairs, and the
+link fades as the gap grows (SBP 0.31 at 20 records apart, 0.01 at 200). So runs of
+consecutive records almost certainly come from one person.
+
+**Keeping those runs together removes most of the main model's lead.** 5-fold
+cross-validation over train + validation, with the main model's settings fixed at the ones
+chosen on validation. The folds either assign records at random (like our real split) or keep
+blocks of consecutive records together, so one patient cannot sit on both sides. MAE in mmHg,
+SBP / DBP:
+
+| Model | Records at random | Blocks of 20 | Blocks of 100 |
+|---|---|---|---|
+| Baseline 1 (training mean) | 19.6 / 8.5 | 19.7 / 8.6 | 20.1 / 8.7 |
+| Linear regression on the same 16 features | 15.5 / 7.8 | 15.9 / 8.1 | 16.5 / 8.2 |
+| Main (`hgb`) | 10.3 / 5.5 | 14.2 / 7.4 | 15.7 / 8.2 |
+
+The baselines barely move, but the main model's SBP error rises by half and its DBP error by
+half. **Our best estimate for a patient the model has never seen is therefore about 15.7 mmHg
+for SBP and 8.2 mmHg for DBP**, not the 10.7 and 6.1 on the test split above. Against
+guessing the average, it still helps for SBP (about 4 mmHg better) but hardly for DBP, and it
+is no better than a linear model on the same features. Most of the gain on the test split
+comes from patients whose other records were in training. The test numbers stay as they are,
+because the test split is scored only once; re-splitting it now would mean choosing a test
+set after seeing results.
 
 ### Where it works and where it fails
 
@@ -252,8 +290,9 @@ Other limits, known before any numbers:
   that the error is largest there.
 - **Noisy or clipped PPG.** Windows with clipped PPG are dropped; on a real device they would
   need to be detected and rejected, not estimated.
-- **A new patient.** There are no patient IDs, so the same person may appear in train and test.
-  Scores may look better than they would on someone the model has never seen.
+- **A new patient.** This is the biggest limit. The leakage check above shows that the same
+  person's records appear on both sides of a record-level split, and that on unseen patients
+  the error rises to about 15.7 (SBP) and 8.2 mmHg (DBP), barely better than a linear model.
 - **A passed AAMI check is not AAMI validation.** The real protocol needs at least 85 subjects
   measured with a reference cuff under a fixed protocol, which this dataset cannot provide.
 
@@ -290,8 +329,10 @@ baseline with errors stated in the clinical unit.
 
 - **ICU patients with arterial lines** (MIMIC-II), not healthy people wearing a watch. Not
   tested on phone or watch sensors.
-- **Possible patient leakage across records.** The dataset has no patient IDs, so splitting by
-  record cannot rule out one person appearing in both train and test.
+- **Patient leakage across records, measured.** The dataset has no patient IDs, and
+  neighbouring records come from the same person, so a record-level split overstates accuracy
+  on new patients (see the leakage check). A split by blocks of consecutive records, chosen
+  before any test run, would have been the better design.
 - **No demographic data**, so effects of skin tone, age or sex on PPG cannot be checked.
 - **Part_1 only** (3,000 of 12,000 records), because the UCI server cuts downloads at 1 GiB.
 - **Pulse arrival time includes a recording delay** in this dataset (see Method), so baseline 2
@@ -301,6 +342,8 @@ baseline with errors stated in the clinical unit.
 
 ## What we would do with another month
 
+- Split by patient from the start: group consecutive records into likely patients (or map them
+  back to MIMIC-II subjects) and redo train, validation and test on those groups.
 - Train and test on all four parts (12,000 records) for more patients and a tighter interval.
 - Try a small 1D CNN on the raw PPG and compare it with the feature model on the same split.
 - Per-patient calibration (one cuff reading to set the offset), the way most cuffless devices
