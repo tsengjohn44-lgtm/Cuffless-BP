@@ -233,11 +233,10 @@ SBP / DBP:
 | Linear regression on the same 16 features | 15.5 / 7.8 | 15.9 / 8.1 | 16.5 / 8.2 |
 | Main (`hgb`) | 10.3 / 5.5 | 14.2 / 7.4 | 15.7 / 8.2 |
 
-The baselines barely move, but the main model's SBP error rises by half and its DBP error by
-half. **Our best estimate for a patient the model has never seen is therefore about 15.7 mmHg
+The baselines barely move, but both of the main model's errors rise by about half. **Our best estimate for a patient the model has never seen is therefore about 15.7 mmHg
 for SBP and 8.2 mmHg for DBP**, not the 10.7 and 6.1 on the test split above. Against
 guessing the average, it still helps for SBP (about 4 mmHg better) but hardly for DBP, and it
-is no better than a linear model on the same features. Most of the gain on the test split
+is barely better than a linear model on the same features (16.5 / 8.2). Most of the gain on the test split
 comes from patients whose other records were in training. The test numbers stay as they are,
 because the test split is scored only once; re-splitting it now would mean choosing a test
 set after seeing results.
